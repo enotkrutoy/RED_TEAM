@@ -54,6 +54,7 @@ const App = () => {
   const [analysis, setAnalysis] = useState<DorkResponse | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syntaxErrors, setSyntaxErrors] = useState<string[]>([]);
   const [showManual, setShowManual] = useState(false);
@@ -124,6 +125,40 @@ const App = () => {
     return issues;
   };
 
+  const handleOptimizePrompt = async () => {
+    if (!naturalInput.trim()) return;
+    if (!process.env.API_KEY) {
+        setError("API Key missing.");
+        return;
+    }
+    
+    setIsOptimizing(true);
+    setError(null);
+    try {
+        const result = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Act as a Red Team Lead. Rewrite the following user request into a precise, high-context technical objective for a Google Dork generation AI. 
+            
+            Current Request: "${naturalInput}"
+            
+            Rules:
+            1. Use professional cybersecurity terminology (GHDB).
+            2. Be specific about targets, file extensions, and vulnerability types (SQLi, IDOR, Exposed Env, etc.).
+            3. Keep it concise but detailed enough for an AI to generate the perfect GHDB query.
+            4. Output ONLY the rewritten prompt text.`,
+        });
+        
+        if (result.text) {
+            setNaturalInput(result.text.trim());
+        }
+    } catch (e) {
+        console.error(e);
+        setError("Optimization failed. Check connectivity.");
+    } finally {
+        setIsOptimizing(false);
+    }
+  };
+
   const generateWithAI = async (overrideInput?: string) => {
     const inputToUse = overrideInput || naturalInput;
     if (!inputToUse.trim()) return;
@@ -135,7 +170,6 @@ const App = () => {
     setIsLoading(true);
     setError(null);
     setSyntaxErrors([]);
-    // Do not clear dork immediately to prevent flickering, but clear analysis
     setAnalysis(null);
 
     try {
@@ -146,7 +180,7 @@ const App = () => {
       
       Task:
       1. Generate a specialized Google Dork based on GHDB patterns to achieve the objective.
-      2. STRICT CONSTRAINT: The 'dork' field must NOT contain any Cyrillic characters. Use ASCII only. If the target is Russian, use 'site:.ru' or transliterated keywords, but never Cyrillic in the dork string.
+      2. STRICT RULE: The 'dork' field must contain ONLY ASCII CHARACTERS. Absolutely NO CYRILLIC (Russian) characters in the final dork string. If the target is Russian, use 'site:.ru' or transliterated keywords (e.g., 'paroli' not 'пароли').
       3. SYNTAX SAFETY: Ensure all quotes are balanced. Isolate special characters correctly.
       4. STRATEGY: Analyze how this query could be improved or what it might miss, and propose a refined objective.
       
@@ -191,7 +225,7 @@ const App = () => {
         config: {
           responseMimeType: "application/json",
           responseSchema: responseSchema,
-          systemInstruction: "You are an autonomous AI cyber-security assistant leveraging the Google Hacking Database. Your output must be syntactically perfect and safe."
+          systemInstruction: "You are an autonomous AI cyber-security assistant. Your primary directive is to generate syntacticly perfect Google Dorks. You must NEVER use Cyrillic characters in the 'dork' field."
         }
       });
 
@@ -268,7 +302,19 @@ const App = () => {
             </div>
             <div className="card-body d-flex flex-column">
               <div className="mb-3 flex-grow-1">
-                <label className="form-label text-muted text-uppercase small ls-1">Target Parameters</label>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                    <label className="form-label text-muted text-uppercase small ls-1 mb-0">Target Parameters</label>
+                    <button 
+                        className="btn btn-sm btn-outline-info py-0 px-2 terminal-font border-0" 
+                        style={{fontSize: '0.75rem'}}
+                        onClick={handleOptimizePrompt}
+                        disabled={isOptimizing || !naturalInput}
+                        title="Rewrite input using expert terminology"
+                    >
+                        {isOptimizing ? <span className="spinner-border spinner-border-sm me-1"></span> : <i className="bi bi-magic me-1"></i>}
+                        ENHANCE PROMPT
+                    </button>
+                </div>
                 <textarea
                   className="form-control mb-3 terminal-input"
                   rows={5}
@@ -360,8 +406,8 @@ const App = () => {
                 
                 {/* Syntax Errors / Warnings */}
                 {syntaxErrors.length > 0 && (
-                     <div className="alert alert-warning terminal-font border-warning">
-                        <h6 className="fw-bold"><i className="bi bi-cone-striped me-2"></i>SYNTAX ALERT</h6>
+                     <div className="alert alert-danger terminal-font border-danger bg-danger bg-opacity-10">
+                        <h6 className="fw-bold"><i className="bi bi-cone-striped me-2"></i>SYNTAX/ASCII ALERT</h6>
                         <ul className="mb-0 ps-3">
                             {syntaxErrors.map((err, i) => (
                                 <li key={i}>{err}</li>
