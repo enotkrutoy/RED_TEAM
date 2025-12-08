@@ -13,6 +13,8 @@ interface DorkResponse {
   riskLevel: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   suggestedOperators: string[];
   validationAnalysis: string;
+  improvementReasoning: string;
+  refinedObjective: string;
 }
 
 interface HistoryItem {
@@ -53,6 +55,7 @@ const App = () => {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syntaxErrors, setSyntaxErrors] = useState<string[]>([]);
   const [showManual, setShowManual] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
 
@@ -64,6 +67,13 @@ const App = () => {
     filetype: "",
     textquery: ""
   });
+
+  // Check for API Key on mount
+  useEffect(() => {
+    if (!process.env.API_KEY) {
+        setError("SYSTEM ALERT: API_KEY is missing. Configure Vercel Environment Variables.");
+    }
+  }, []);
 
   // Effect to sync manual params to dork string if analysis is null (manual mode)
   useEffect(() => {
@@ -96,34 +106,62 @@ const App = () => {
     setTimeout(() => setCopyFeedback(false), 2000);
   };
 
-  const generateWithAI = async () => {
-    if (!naturalInput.trim()) return;
+  const validatePayload = (payload: string): string[] => {
+    const issues: string[] = [];
+    // 1. Check for Cyrillic
+    if (/[а-яА-ЯёЁ]/.test(payload)) {
+        issues.push("CRITICAL: Cyrillic characters detected in Dork. Google Operators must be ASCII.");
+    }
+    // 2. Check for unbalanced quotes
+    const quoteCount = (payload.match(/"/g) || []).length;
+    if (quoteCount % 2 !== 0) {
+        issues.push("SYNTAX ERROR: Unbalanced quotes detected. Ensure all strings are closed.");
+    }
+    // 3. Check for bad spacing (e.g., "ext: php")
+    if (/(ext|site|inurl|intitle):\s+/.test(payload)) {
+        issues.push("SYNTAX WARNING: Space detected after operator colon (e.g. 'ext: pdf'). Remove space.");
+    }
+    return issues;
+  };
+
+  const generateWithAI = async (overrideInput?: string) => {
+    const inputToUse = overrideInput || naturalInput;
+    if (!inputToUse.trim()) return;
+    if (!process.env.API_KEY) {
+        setError("ABORTED: API Key not found.");
+        return;
+    }
 
     setIsLoading(true);
     setError(null);
+    setSyntaxErrors([]);
     // Do not clear dork immediately to prevent flickering, but clear analysis
     setAnalysis(null);
 
     try {
       const prompt = `Role: Elite Red Team OSINT Specialist.
-      Context: The user needs a precise Google Hacking Database (GHDB) query (Dork) for a specific security assessment.
+      Knowledge Base: Google Hacking Database (GHDB - exploit-db.com).
       
-      Input Objective: "${naturalInput}"
+      Input Objective: "${inputToUse}"
       
       Task:
-      1. Analyze the intent (finding files, login portals, exposed configs, specific vulnerabilities).
-      2. Construct a syntactically perfect Google Dork using advanced operators (site, inurl, intitle, ext, -site, etc.).
-      3. CRITICAL: Validate the dork to minimize false positives.
+      1. Generate a specialized Google Dork based on GHDB patterns to achieve the objective.
+      2. STRICT CONSTRAINT: The 'dork' field must NOT contain any Cyrillic characters. Use ASCII only. If the target is Russian, use 'site:.ru' or transliterated keywords, but never Cyrillic in the dork string.
+      3. SYNTAX SAFETY: Ensure all quotes are balanced. Isolate special characters correctly.
+      4. STRATEGY: Analyze how this query could be improved or what it might miss, and propose a refined objective.
       
-      Constraints:
-      - The 'explanation' field MUST be in Russian language (Technical/Tactical style).
-      - The 'validationAnalysis' field MUST be in Russian language.
-      - 'riskLevel' must be: INFO, LOW, MEDIUM, HIGH, or CRITICAL.`;
+      Output Fields:
+      - dork: The query string (ASCII ONLY).
+      - explanation: Tactical analysis in Russian.
+      - riskLevel: Assessment.
+      - validationAnalysis: Syntax and logic check in Russian.
+      - improvementReasoning: Explanation of how to deepen the search (in Russian).
+      - refinedObjective: A specific, better prompt for the next iteration.`;
 
       const responseSchema: Schema = {
         type: Type.OBJECT,
         properties: {
-          dork: { type: Type.STRING, description: "The Google search query" },
+          dork: { type: Type.STRING, description: "The Google search query (ASCII ONLY)" },
           explanation: { type: Type.STRING, description: "Detailed tactical analysis in Russian" },
           riskLevel: { type: Type.STRING, enum: ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"] },
           suggestedOperators: { 
@@ -134,9 +172,17 @@ const App = () => {
           validationAnalysis: {
             type: Type.STRING,
             description: "Self-correction assessment in Russian"
+          },
+          improvementReasoning: {
+            type: Type.STRING,
+            description: "Reasoning on how to improve the result (in Russian)"
+          },
+          refinedObjective: {
+            type: Type.STRING,
+            description: "A refined natural language prompt for the next iteration"
           }
         },
-        required: ["dork", "explanation", "riskLevel", "suggestedOperators", "validationAnalysis"]
+        required: ["dork", "explanation", "riskLevel", "suggestedOperators", "validationAnalysis", "improvementReasoning", "refinedObjective"]
       };
 
       const result = await ai.models.generateContent({
@@ -145,19 +191,24 @@ const App = () => {
         config: {
           responseMimeType: "application/json",
           responseSchema: responseSchema,
-          systemInstruction: "You are an autonomous AI cyber-security assistant. Your output must be precise, executable, and safe. You prioritize high-signal, low-noise queries."
+          systemInstruction: "You are an autonomous AI cyber-security assistant leveraging the Google Hacking Database. Your output must be syntactically perfect and safe."
         }
       });
 
       if (result.text) {
         const data: DorkResponse = JSON.parse(result.text);
+        
+        // Client-side validation
+        const validationIssues = validatePayload(data.dork);
+        setSyntaxErrors(validationIssues);
+
         setDork(data.dork);
         setAnalysis(data);
         
         // Add to history
         setHistory(prev => [{
             timestamp: Date.now(),
-            input: naturalInput,
+            input: inputToUse,
             response: data
         }, ...prev].slice(0, 10)); // Keep last 10
 
@@ -170,11 +221,20 @@ const App = () => {
             textquery: ""
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("UPLINK ERROR: Unable to generate strategy. Check API connection.");
+      let errorMsg = "UPLINK ERROR: Unable to generate strategy.";
+      if (err.message) errorMsg += ` [${err.message}]`;
+      setError(errorMsg);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleApplyImprovement = () => {
+    if (analysis && analysis.refinedObjective) {
+        setNaturalInput(analysis.refinedObjective);
+        generateWithAI(analysis.refinedObjective);
     }
   };
 
@@ -189,7 +249,7 @@ const App = () => {
             <h1 className="display-6 terminal-font mb-0">
               <span className="text-success">&gt;</span> RED_TEAM_GENAI<span className="blink">_</span>
             </h1>
-            <small className="text-muted text-uppercase ls-1">Autonomous OSINT Payload Generator</small>
+            <small className="text-muted text-uppercase ls-1">GHDB-Enhanced OSINT Generator</small>
           </div>
           <div className="text-end">
              <div className="badge border border-success text-success bg-transparent terminal-font">SYSTEM ONLINE</div>
@@ -224,7 +284,7 @@ const App = () => {
                 
                 <button 
                   className={`btn btn-primary w-100 position-relative overflow-hidden terminal-font ${isLoading ? 'disabled' : ''}`} 
-                  onClick={generateWithAI}
+                  onClick={() => generateWithAI()}
                 >
                   {isLoading ? (
                     <>
@@ -297,6 +357,18 @@ const App = () => {
                         <i className="bi bi-exclamation-triangle-fill me-2"></i> {error}
                     </div>
                 )}
+                
+                {/* Syntax Errors / Warnings */}
+                {syntaxErrors.length > 0 && (
+                     <div className="alert alert-warning terminal-font border-warning">
+                        <h6 className="fw-bold"><i className="bi bi-cone-striped me-2"></i>SYNTAX ALERT</h6>
+                        <ul className="mb-0 ps-3">
+                            {syntaxErrors.map((err, i) => (
+                                <li key={i}>{err}</li>
+                            ))}
+                        </ul>
+                     </div>
+                )}
 
                 <div className="mb-4">
                     <label className="form-label text-muted text-uppercase small ls-1 d-flex justify-content-between">
@@ -334,11 +406,40 @@ const App = () => {
 
                 {analysis ? (
                     <div className="analysis-container fade-in">
+                        {/* Tactical Analysis */}
                         <div className="mb-3 p-3 border border-secondary border-opacity-25 rounded bg-dark bg-opacity-25">
                             <h6 className="terminal-font text-info mb-2 small text-uppercase fw-bold">
                                 <i className="bi bi-crosshair me-2"></i>Tactical Analysis (RU)
                             </h6>
                             <p className="analysis-text mb-0">{analysis.explanation}</p>
+                        </div>
+
+                        {/* Optimization Strategy */}
+                        <div className="mb-3 p-3 border border-secondary border-opacity-25 rounded bg-dark bg-opacity-10">
+                            <div className="d-flex justify-content-between align-items-start mb-2">
+                                <h6 className="terminal-font text-warning mb-0 small text-uppercase fw-bold">
+                                    <i className="bi bi-arrow-up-circle me-2"></i>Optimization Strategy (RU)
+                                </h6>
+                            </div>
+                            <p className="analysis-text text-light small mb-3">{analysis.improvementReasoning}</p>
+                            
+                            {analysis.refinedObjective && (
+                                <div className="mt-2">
+                                    <div className="d-grid">
+                                        <button 
+                                            className="btn btn-sm btn-outline-warning terminal-font text-uppercase"
+                                            onClick={handleApplyImprovement}
+                                            disabled={isLoading}
+                                        >
+                                            {isLoading ? 'OPTIMIZING...' : 'APPLY IMPROVEMENTS & REGENERATE'}
+                                            <i className="bi bi-stars ms-2"></i>
+                                        </button>
+                                    </div>
+                                    <small className="text-muted d-block mt-1 fst-italic" style={{fontSize: '0.75rem'}}>
+                                        Proposed: "{analysis.refinedObjective}"
+                                    </small>
+                                </div>
+                            )}
                         </div>
 
                         <div className="mb-3 p-3 border border-secondary border-opacity-25 rounded bg-dark bg-opacity-10">
@@ -350,7 +451,7 @@ const App = () => {
 
                         {analysis.suggestedOperators && analysis.suggestedOperators.length > 0 && (
                             <div>
-                                <small className="text-muted d-block mb-2 text-uppercase small ls-1">Refinement Vectors</small>
+                                <small className="text-muted d-block mb-2 text-uppercase small ls-1">Quick Add Vectors</small>
                                 <div className="d-flex flex-wrap gap-2">
                                     {analysis.suggestedOperators.map((op, idx) => (
                                         <button 
@@ -397,6 +498,8 @@ const App = () => {
                                         setNaturalInput(item.input);
                                         setDork(item.response.dork);
                                         setAnalysis(item.response);
+                                        // Re-validate when loading from history
+                                        setSyntaxErrors(validatePayload(item.response.dork));
                                     }}
                                 >
                                     <div className="d-flex w-100 justify-content-between">
