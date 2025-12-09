@@ -180,7 +180,9 @@ const App = () => {
       
       Task:
       1. Generate a specialized Google Dork based on GHDB patterns to achieve the objective.
-      2. STRICT RULE: The 'dork' field must contain ONLY ASCII CHARACTERS. Absolutely NO CYRILLIC (Russian) characters in the final dork string. If the target is Russian, use 'site:.ru' or transliterated keywords (e.g., 'paroli' not 'пароли').
+      2. STRICT RULE: The 'dork' field must contain ONLY ASCII CHARACTERS. 
+         - Absolutely NO CYRILLIC (Russian) characters in the final dork string. 
+         - If the target is Russian, use 'site:.ru' and transliterate keywords (e.g., 'paroli' not 'пароли') or translate them to English (e.g., 'password' or 'config').
       3. SYNTAX SAFETY: Ensure all quotes are balanced. Isolate special characters correctly.
       4. STRATEGY: Analyze how this query could be improved or what it might miss, and propose a refined objective.
       
@@ -225,7 +227,7 @@ const App = () => {
         config: {
           responseMimeType: "application/json",
           responseSchema: responseSchema,
-          systemInstruction: "You are an autonomous AI cyber-security assistant. Your primary directive is to generate syntacticly perfect Google Dorks. You must NEVER use Cyrillic characters in the 'dork' field."
+          systemInstruction: "You are an autonomous AI cyber-security assistant. Your primary directive is to generate syntacticly perfect Google Dorks. You must NEVER use Cyrillic characters in the 'dork' field. Translate Russian requirements into English or ASCII transliteration for the query string."
         }
       });
 
