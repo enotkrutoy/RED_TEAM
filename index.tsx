@@ -145,7 +145,8 @@ const App = () => {
             1. Use professional cybersecurity terminology (GHDB).
             2. Be specific about targets, file extensions, and vulnerability types (SQLi, IDOR, Exposed Env, etc.).
             3. Keep it concise but detailed enough for an AI to generate the perfect GHDB query.
-            4. Output ONLY the rewritten prompt text.`,
+            4. Output ONLY the rewritten prompt text.
+            5. Ensure the rewritten prompt explicitly asks for ASCII-only output if the original request was in Russian.`,
         });
         
         if (result.text) {
@@ -197,7 +198,7 @@ const App = () => {
       const responseSchema: Schema = {
         type: Type.OBJECT,
         properties: {
-          dork: { type: Type.STRING, description: "The Google search query (ASCII ONLY)" },
+          dork: { type: Type.STRING, description: "The Google search query (ASCII ONLY - NO CYRILLIC)" },
           explanation: { type: Type.STRING, description: "Detailed tactical analysis in Russian" },
           riskLevel: { type: Type.STRING, enum: ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"] },
           suggestedOperators: { 
@@ -227,7 +228,7 @@ const App = () => {
         config: {
           responseMimeType: "application/json",
           responseSchema: responseSchema,
-          systemInstruction: "You are an autonomous AI cyber-security assistant. Your primary directive is to generate syntacticly perfect Google Dorks. You must NEVER use Cyrillic characters in the 'dork' field. Translate Russian requirements into English or ASCII transliteration for the query string."
+          systemInstruction: "You are an autonomous AI cyber-security assistant. Your primary directive is to generate syntacticly perfect Google Dorks. You must NEVER use Cyrillic characters in the 'dork' field. Translate Russian requirements into English or ASCII transliteration for the query string. If the input is in Russian, the dork MUST BE in ASCII."
         }
       });
 
