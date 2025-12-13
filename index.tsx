@@ -111,7 +111,7 @@ const App = () => {
     const issues: string[] = [];
     // 1. Check for Cyrillic
     if (/[а-яА-ЯёЁ]/.test(payload)) {
-        issues.push("CRITICAL: Cyrillic characters detected in Dork. Google Operators must be ASCII.");
+        issues.push("CRITICAL: Cyrillic characters detected in Dork. Google Operators must be ASCII. Transliterate or translate to English.");
     }
     // 2. Check for unbalanced quotes
     const quoteCount = (payload.match(/"/g) || []).length;
@@ -146,7 +146,7 @@ const App = () => {
             2. Be specific about targets, file extensions, and vulnerability types (SQLi, IDOR, Exposed Env, etc.).
             3. Keep it concise but detailed enough for an AI to generate the perfect GHDB query.
             4. Output ONLY the rewritten prompt text.
-            5. Ensure the rewritten prompt explicitly asks for ASCII-only output if the original request was in Russian.`,
+            5. CRITICAL: If the user requests targeting Russia or uses Russian, explicitly add this instruction to the rewritten prompt: "Use site:.ru but ensure all keywords are ASCII-only (transliterated or English)."`,
         });
         
         if (result.text) {
@@ -183,7 +183,7 @@ const App = () => {
       1. Generate a specialized Google Dork based on GHDB patterns to achieve the objective.
       2. STRICT RULE: The 'dork' field must contain ONLY ASCII CHARACTERS. 
          - Absolutely NO CYRILLIC (Russian) characters in the final dork string. 
-         - If the target is Russian, use 'site:.ru' and transliterate keywords (e.g., 'paroli' not 'пароли') or translate them to English (e.g., 'password' or 'config').
+         - If the target is Russian, use 'site:.ru' and transliterate keywords (e.g., use 'paroli' not 'пароли') or translate them to English (e.g., 'password', 'config', 'db_backup').
       3. SYNTAX SAFETY: Ensure all quotes are balanced. Isolate special characters correctly.
       4. STRATEGY: Analyze how this query could be improved or what it might miss, and propose a refined objective.
       
@@ -193,7 +193,7 @@ const App = () => {
       - riskLevel: Assessment.
       - validationAnalysis: Syntax and logic check in Russian.
       - improvementReasoning: Explanation of how to deepen the search (in Russian).
-      - refinedObjective: A specific, better prompt for the next iteration.`;
+      - refinedObjective: A specific, better prompt for the next iteration (in English/ASCII).`;
 
       const responseSchema: Schema = {
         type: Type.OBJECT,
